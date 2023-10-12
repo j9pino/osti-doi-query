@@ -3,6 +3,7 @@ import requests
 import json
 import csv
 from io import StringIO
+from collections import OrderedDict
 
 # Define the API endpoint you want to query
 api_url = "https://www.osti.gov/api/v1/records"
@@ -35,11 +36,13 @@ def json_to_csv(data, include_header=True):
     output = StringIO()
 
     # Collect all possible field names from data
-    all_keys = set()
+    ordered_keys = OrderedDict()
     for record in data:
         row = record[0] if isinstance(record, list) else record
-        all_keys.update(row.keys())
-    fields = list(all_keys)
+        for key in row.keys():
+            ordered_keys[key] = None
+    
+    fields = list(ordered_keys.keys())
 
     writer = csv.DictWriter(output, fieldnames=fields)
     if include_header:
@@ -79,6 +82,13 @@ def main():
                     if not result or 'results' not in result or not result['results']:
                         break
                     results.extend(result.get('results', []))
+                    if first_batch:
+                        batch_csv_data, headers = json_to_csv(result['results'], include_header=True)
+                        cumulative_csv.write(batch_csv_data)
+                        first_batch = False
+                    else:
+                        batch_csv_data, _ = json_to_csv(result['results'], include_header=False)
+                        cumulative_csv.write(batch_csv_data)
                     has_data_for_doi = True
                     if len(result.get('results', [])) < 100:
                         break
@@ -91,16 +101,15 @@ def main():
             st.warning("The following DOIs were not found:")
             for doi in failed_dois:
                 st.write(doi)
-
-        # Convert the entire results set to CSV at once
         if results:
-            cumulative_csv_data, headers = json_to_csv(results, include_header=True)
-            cumulative_csv.write(cumulative_csv_data)
             preview_data = [record[0] if isinstance(record, list) else record for record in results]
             st.dataframe(preview_data)
-            st.download_button("Download your results", data=cumulative_csv.getvalue().encode(), file_name="api_results.csv", mime="text/csv")
+            st.download_button("Download your results as a CSV file.", data=cumulative_csv.getvalue().encode(), file_name="api_results.csv", mime="text/csv")
+            # Add download button for original JSON
+            st.download_button("Download the original JSON reponse.", data=json.dumps(results, indent=4).encode(), file_name="api_results.json", mime="application/json")
         else:
             st.warning("No results obtained.")
 
 if __name__ == '__main__':
     main()
+
